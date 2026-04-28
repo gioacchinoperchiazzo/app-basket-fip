@@ -3,59 +3,75 @@ import pandas as pd
 import os
 import re
 
-st.set_page_config(page_title="Basket Manager U14", layout="wide")
+st.set_page_config(page_title="Basket Manager - Basketincontro", layout="wide")
 
-# File per i dati
-GERE_FILE = "gare.csv"
-TABELLINI_FILE = "tabellini.csv"
+# File per salvare i dati
+GARE_FILE = "gare_basketincontro.csv"
+TABS_FILE = "tabellini_atleti.csv"
 
-def carica_dati(file, colonne):
-    if os.path.exists(file): return pd.read_csv(file)
+def carica_file(nome_file, colonne):
+    if os.path.exists(nome_file):
+        return pd.read_csv(nome_file)
     return pd.DataFrame(columns=colonne)
 
-def salva_dati(file, nuovo_df):
-    df_attuale = pd.read_csv(file) if os.path.exists(file) else pd.DataFrame(columns=nuovo_df.columns)
-    pd.concat([df_attuale, nuovo_df]).drop_duplicates().to_csv(file, index=False)
+def salva_file(nome_file, nuovo_df):
+    df_esistente = carica_file(nome_file, nuovo_df.columns)
+    # Evitiamo duplicati basandoci sulla colonna 'Incontro'
+    df_finale = pd.concat([df_esistente, nuovo_df]).drop_duplicates(subset=["Incontro"], keep='last')
+    df_finale.to_csv(nome_file, index=False)
 
-st.title("🏀 Gestore Risultati & Tabellini U14")
+st.title("🏀 U14 Regionale - Gestione Basketincontro")
 
-menu = st.sidebar.selectbox("Menu", ["🏠 Dashboard Risultati", "📅 Carica Giornata (Risultati)", "📊 Carica Tabellino (Punti Atleti)"])
+menu = st.sidebar.radio("Menu Principale", ["🏠 Tabellone Generale", "📥 Importa da Basketincontro", "📊 Inserisci Tabellino Atleti"])
 
-# --- 1. DASHBOARD ---
-if menu == "🏠 Dashboard Risultati":
-    st.subheader("Risultati Campionato")
-    gare = carica_dati(GERE_FILE, ["Giornata", "Partita", "Risultato"])
-    if gare.empty: st.info("Nessuna gara salvata.")
-    else: st.table(gare)
+# --- 1. VISUALIZZAZIONE ---
+if menu == "🏠 Tabellone Generale":
+    st.subheader("Risultati Salvati")
+    df_gare = carica_file(GARE_FILE, ["Giornata", "Incontro", "Risultato"])
+    if df_gare.empty:
+        st.info("L'archivio è vuoto. Vai alla sezione Importa.")
+    else:
+        st.table(df_gare)
+
+# --- 2. IMPORTAZIONE ---
+elif menu == "📥 Importa da Basketincontro":
+    st.subheader("Importazione Rapida Giornata")
+    st.info("Apri la giornata su Basketincontro, copia la tabella dei risultati e incollala qui.")
     
-    st.subheader("Dettaglio Tabellini")
-    tabs = carica_dati(TABELLINI_FILE, ["Partita", "Punti_Giocatori"])
-    if tabs.empty: st.info("Nessun tabellino salvato.")
-    else: st.table(tabs)
-
-# --- 2. CARICA GIORNATA ---
-elif menu == "📅 Carica Giornata (Risultati)":
-    st.subheader("Importa Risultati di una Giornata")
-    giornata = st.text_input("Quale giornata? (es: 1 Ritorno)")
-    testo = st.text_area("Incolla qui i risultati dal sito (anche disordinati)", height=150)
+    giornata_n = st.text_input("Specifica la Giornata (es: 1 Andata)", "1")
+    testo_incollato = st.text_area("Incolla qui il testo dei risultati", height=200)
     
-    if st.button("Salva Risultati"):
-        # Cerca pattern: Squadra A - Squadra B 70 - 60
-        matches = re.findall(r'(.+?)\s+-\s+(.+?)\s+(\d+)\s*-\s*(\d+)', testo)
-        if matches:
-            nuove_gare = [{"Giornata": giornata, "Partita": f"{m[0].strip()} - {m[1].strip()}", "Risultato": f"{m[2]}-{m[3]}"} for m in matches]
-            salva_dati(GERE_FILE, pd.DataFrame(nuove_gare))
-            st.success(f"Salvate {len(nuove_gare)} partite!")
-        else: st.error("Non ho trovato risultati. Prova a copiare meglio la riga della partita.")
+    if st.button("Elabora e Salva"):
+        # Logica specifica per il formato Basketincontro: Squadra A Squadra B 60 - 45
+        # Cerchiamo pattern tipo "Virtus Roma BK Frascati 55 - 40"
+        partite = []
+        righe = testo_incollato.split('\n')
+        for r in righe:
+            # Questa espressione cerca due nomi di squadre seguiti da un punteggio X - Y
+            match = re.search(r'(.+?)\s+(.+?)\s+(\d+)\s*-\s*(\d+)', r)
+            if match:
+                partite.append({
+                    "Giornata": giornata_n,
+                    "Incontro": f"{match.group(1).strip()} vs {match.group(2).strip()}",
+                    "Risultato": f"{match.group(3)} - {match.group(4)}"
+                })
+        
+        if partite:
+            salva_file(GARE_FILE, pd.DataFrame(partite))
+            st.success(f"Ho trovato e salvato {len(partite)} partite!")
+        else:
+            st.error("Non ho trovato risultati validi. Assicurati che nel testo incollato ci sia il punteggio (es. 50 - 40).")
 
-# --- 3. CARICA TABELLINO ---
-elif menu == "📊 Carica Tabellino (Punti Atleti)":
-    st.subheader("Importa Tabellino Singolo")
-    gare_esistenti = carica_dati(GERE_FILE, ["Partita"])["Partita"].unique()
-    partita_sel = st.selectbox("Seleziona la partita", gare_esistenti if len(gare_esistenti)>0 else ["Inserisci prima i risultati"])
-    testo_tab = st.text_area("Incolla qui i punti (es: Rossi 12, Bianchi 8...)")
-    
-    if st.button("Salva Tabellino"):
-        if partita_sel != "Inserisci prima i risultati":
-            salva_dati(TABELLINI_FILE, pd.DataFrame([{"Partita": partita_sel, "Punti_Giocatori": testo_tab}]))
-            st.success("Tabellino collegato alla partita!")
+# --- 3. TABELLINI ---
+elif menu == "📊 Inserisci Tabellino Atleti":
+    st.subheader("Punti Individuali")
+    df_gare = carica_file(GARE_FILE, ["Incontro"])
+    if df_gare.empty:
+        st.warning("Devi prima importare i risultati delle gare!")
+    else:
+        partita_sel = st.selectbox("Seleziona la partita", df_gare["Incontro"].unique())
+        punti_testo = st.text_area("Incolla il tabellino (es: Rossi 15, Bianchi 4...)")
+        if st.button("Salva Tabellino"):
+            salva_file(TABS_FILE, pd.DataFrame([{"Incontro": partita_sel, "Punti": punti_testo}]))
+            st.success("Tabellino salvato con successo!")
+
