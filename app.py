@@ -36,7 +36,7 @@ elif scelta == "Caricamento Manuale":
     with st.form("form_gara"):
         col1, col2 = st.columns(2)
         with col1:
-            campionato = st.selectbox("Campionato", ["Under 13", "Under 15", "Under 17", "Under 19"])
+            campionato = st.selectbox("Campionato", ["Under 13", "Under 14", "Under 15", "Under 17", "Under 19", "Prima Divisione", "Promozione"])
             casa = st.text_input("Squadra Casa")
             punti_casa = st.number_input("Punti Casa", min_value=0, step=1)
         with col2:
