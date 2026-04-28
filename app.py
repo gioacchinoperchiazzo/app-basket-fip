@@ -3,61 +3,59 @@ import pandas as pd
 import os
 import re
 
-st.set_page_config(page_title="Basket U14 - Fonte Basketincontro", layout="wide")
+st.set_page_config(page_title="Basket Manager U14", layout="wide")
 
-DB_FILE = "archivio_basketincontro.csv"
+# File per i dati
+GERE_FILE = "gare.csv"
+TABELLINI_FILE = "tabellini.csv"
 
-def carica_db():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
-    return pd.DataFrame(columns=["Squadre", "Risultato", "Tabellino", "Fonte"])
+def carica_dati(file, colonne):
+    if os.path.exists(file): return pd.read_csv(file)
+    return pd.DataFrame(columns=colonne)
 
-def salva_db(nuovi_dati):
-    df = carica_db()
-    df = pd.concat([df, pd.DataFrame(nuovi_dati)], ignore_index=True)
-    df.to_csv(DB_FILE, index=False)
+def salva_dati(file, nuovo_df):
+    df_attuale = pd.read_csv(file) if os.path.exists(file) else pd.DataFrame(columns=nuovo_df.columns)
+    pd.concat([df_attuale, nuovo_df]).drop_duplicates().to_csv(file, index=False)
 
-st.title("🏀 Gestione U14 Silver Lazio (Fonte: Basketincontro)")
+st.title("🏀 Gestore Risultati & Tabellini U14")
 
-scelta = st.sidebar.selectbox("Cosa vuoi fare?", ["Classifica e Risultati", "Importa Tabellini Basketincontro", "Inserimento Rapido"])
+menu = st.sidebar.selectbox("Menu", ["🏠 Dashboard Risultati", "📅 Carica Giornata (Risultati)", "📊 Carica Tabellino (Punti Atleti)"])
 
-if scelta == "Classifica e Risultati":
-    df = carica_db()
-    if df.empty:
-        st.info("Nessuna partita in archivio.")
-    else:
-        st.dataframe(df, use_container_width=True)
-
-elif scelta == "Importa Tabellini Basketincontro":
-    st.subheader("Cattura Risultati e Punti")
-    st.markdown("""
-    1. Apri la pagina del match su [Basketincontro](https://www.basketincontro.it/).
-    2. Copia il testo dove vedi il punteggio e l'elenco dei giocatori con i punti.
-    3. Incollalo qui sotto.
-    """)
+# --- 1. DASHBOARD ---
+if menu == "🏠 Dashboard Risultati":
+    st.subheader("Risultati Campionato")
+    gare = carica_dati(GERE_FILE, ["Giornata", "Partita", "Risultato"])
+    if gare.empty: st.info("Nessuna gara salvata.")
+    else: st.table(gare)
     
-    testo_raw = st.text_area("Incolla qui i dati della partita", height=200)
-    
-    if st.button("Analizza e Salva"):
-        # Cerca squadre e punteggio finale (es. SS Lazio - Tiber 70-65)
-        info_gara = re.search(r'(.+?)\s+[-vV][sS]\s+(.+?)\s+(\d+)\s*[-]\s*(\d+)', testo_raw)
-        
-        if info_gara:
-            squadre = f"{info_gara.group(1).strip()} vs {info_gara.group(2).strip()}"
-            risultato = f"{info_gara.group(3)} - {info_gara.group(4)}"
-            # Il resto del testo lo salviamo come tabellino
-            tabellino = testo_raw.replace(info_gara.group(0), "").strip()
-            
-            salva_db([{"Squadre": squadre, "Risultato": risultato, "Tabellino": tabellino, "Fonte": "Basketincontro"}])
-            st.success("Partita e tabellino salvati!")
-        else:
-            st.error("Non ho trovato squadre o punteggio nel testo. Riprova a copiare meglio.")
+    st.subheader("Dettaglio Tabellini")
+    tabs = carica_dati(TABELLINI_FILE, ["Partita", "Punti_Giocatori"])
+    if tabs.empty: st.info("Nessun tabellino salvato.")
+    else: st.table(tabs)
 
-elif scelta == "Inserimento Rapido":
-    with st.form("quick_add"):
-        squadre = st.text_input("Gara")
-        ris = st.text_input("Risultato finale")
-        tab = st.text_area("Punti giocatori")
-        if st.form_submit_button("Salva"):
-            salva_db([{"Squadre": squadre, "Risultato": ris, "Tabellino": tab, "Fonte": "Manuale"}])
-            st.success("Salvato!")
+# --- 2. CARICA GIORNATA ---
+elif menu == "📅 Carica Giornata (Risultati)":
+    st.subheader("Importa Risultati di una Giornata")
+    giornata = st.text_input("Quale giornata? (es: 1 Ritorno)")
+    testo = st.text_area("Incolla qui i risultati dal sito (anche disordinati)", height=150)
+    
+    if st.button("Salva Risultati"):
+        # Cerca pattern: Squadra A - Squadra B 70 - 60
+        matches = re.findall(r'(.+?)\s+-\s+(.+?)\s+(\d+)\s*-\s*(\d+)', testo)
+        if matches:
+            nuove_gare = [{"Giornata": giornata, "Partita": f"{m[0].strip()} - {m[1].strip()}", "Risultato": f"{m[2]}-{m[3]}"} for m in matches]
+            salva_dati(GERE_FILE, pd.DataFrame(nuove_gare))
+            st.success(f"Salvate {len(nuove_gare)} partite!")
+        else: st.error("Non ho trovato risultati. Prova a copiare meglio la riga della partita.")
+
+# --- 3. CARICA TABELLINO ---
+elif menu == "📊 Carica Tabellino (Punti Atleti)":
+    st.subheader("Importa Tabellino Singolo")
+    gare_esistenti = carica_dati(GERE_FILE, ["Partita"])["Partita"].unique()
+    partita_sel = st.selectbox("Seleziona la partita", gare_esistenti if len(gare_esistenti)>0 else ["Inserisci prima i risultati"])
+    testo_tab = st.text_area("Incolla qui i punti (es: Rossi 12, Bianchi 8...)")
+    
+    if st.button("Salva Tabellino"):
+        if partita_sel != "Inserisci prima i risultati":
+            salva_dati(TABELLINI_FILE, pd.DataFrame([{"Partita": partita_sel, "Punti_Giocatori": testo_tab}]))
+            st.success("Tabellino collegato alla partita!")
